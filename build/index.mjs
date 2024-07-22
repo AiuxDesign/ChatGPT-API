@@ -420,6 +420,7 @@ var ChatGPT = class {
           onEnd = () => {
           },
           initialMessages = void 0,
+          temperature = 1,
           model = __privateGet(this, _model)
         } = opts;
         const shouldAddToStore = !initialMessages;
@@ -475,7 +476,7 @@ var ChatGPT = class {
             await onEnd(endData);
             resolve(endData);
           };
-          await __privateMethod(this, _streamChat, streamChat_fn).call(this, messages, onProgress, responseMessage, innerOnEnd, model);
+          await __privateMethod(this, _streamChat, streamChat_fn).call(this, messages, onProgress, responseMessage, innerOnEnd, temperature, model);
         } else {
           const chatResponse = await __privateMethod(this, _chat, chat_fn).call(this, messages, model);
           if (!chatResponse.success) {
@@ -559,7 +560,7 @@ _ignoreServerMessagesInPrompt = new WeakMap();
 _log2 = new WeakMap();
 _vendor = new WeakMap();
 _streamChat = new WeakSet();
-streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, model) {
+streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
   const axiosResponse = await post(
     {
       url: __privateGet(this, _urls).createChatCompletion,
@@ -571,6 +572,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
       },
       data: {
         stream: true,
+        temperature,
         ...__privateGet(this, _vendor) === "OPENAI" ? { model } : {},
         messages,
         ...__privateGet(this, _requestConfig).data || {}
@@ -586,16 +588,24 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
   const status = axiosResponse.status;
   if (__privateMethod(this, _validateAxiosResponse, validateAxiosResponse_fn).call(this, status)) {
     stream.on("data", (buf) => {
+      var _a, _b;
       const dataArr = buf.toString().split("\n");
       let onDataPieceText = "";
+      let tempString = "";
       for (const dataStr of dataArr) {
-        try {
-          if (dataStr.indexOf("data: ") !== 0 || dataStr === "data: [DONE]")
-            continue;
-          const parsedData = JSON.parse(dataStr.slice(6));
-          const pieceText = parsedData.choices[0].delta.content || "";
-          onDataPieceText += pieceText;
-        } catch (e) {
+        tempString += dataStr;
+        if (tempString.endsWith("}]}")) {
+          if (!tempString.startsWith("data: ")) {
+            tempString = "";
+            return;
+          }
+          try {
+            const parsedData = JSON.parse(tempString.slice(6));
+            const content = ((_b = (_a = parsedData.choices[0]) == null ? void 0 : _a.delta) == null ? void 0 : _b.content) || "";
+            onDataPieceText += content;
+            tempString = "";
+          } catch (e) {
+          }
         }
       }
       if (typeof onProgress === "function") {

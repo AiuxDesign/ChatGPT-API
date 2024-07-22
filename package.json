@@ -24,7 +24,10 @@
     "build/index.mjs",
     "build/index.d.ts"
   ],
-  "repository": "git@github.com:aiux/ChatGPT-API.git",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/aiux/ChatGPT-API.git"
+  },
   "scripts": {
     "build": "tsup"
   },
