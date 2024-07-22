@@ -223,5 +223,6 @@ export interface ISendMessagesOpts {
   onProgress?: (t: string, raw: string) => void
   onEnd?: (d: IChatCompletionStreamOnEndData) => void
   initialMessages?: TCommonMessage[]
+  temperature?: number
   model?: string
 }

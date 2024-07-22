@@ -148,6 +148,7 @@ export class ChatGPT {
           onProgress = false,
           onEnd = () => {},
           initialMessages = undefined,
+          temperature = 1,
           model = this.#model,
         } = opts as ISendMessagesOpts
         // 是否需要把数据存储到 store 中
@@ -215,6 +216,7 @@ export class ChatGPT {
             onProgress,
             responseMessage,
             innerOnEnd,
+            temperature,
             model,
           )
         } else {
@@ -272,6 +274,7 @@ export class ChatGPT {
     onProgress: boolean | ((t: string, rwa: string) => void),
     responseMessagge: IChatGPTResponse,
     innerOnEnd: (d: IChatCompletionStreamOnEndData) => void,
+    temperature: number,
     model: string,
   ) {
     const axiosResponse = await post(
@@ -287,6 +290,7 @@ export class ChatGPT {
         },
         data: {
           stream: true,
+          temperature,
           ...(this.#vendor === 'OPENAI' ? { model } : {}),
           messages,
           ...(this.#requestConfig.data || {}),
