@@ -307,18 +307,34 @@ export class ChatGPT {
     if (this.#validateAxiosResponse(status)) {
       stream.on('data', (buf: any) => {
         const dataArr = buf.toString().split('\n')
-        let onDataPieceText = ''
+        let onDataPieceText = '';
+        let tempString = '';
         for (const dataStr of dataArr) {
-          try {
-            // split 之后的空行，或者结束通知
-            if (dataStr.indexOf('data: ') !== 0 || dataStr === 'data: [DONE]')
-              continue
-            const parsedData = JSON.parse(dataStr.slice(6)) // [data: ]
-            const pieceText = parsedData.choices[0].delta.content || ''
-            onDataPieceText += pieceText
-          } catch (e) {
-            // this.#log('chunk parse error')
+          tempString += dataStr;
+          if (tempString.endsWith('}]}')) {
+            if (!tempString.startsWith('data: ')) {
+              tempString = '';
+              return;
+            }
+            try {
+              const parsedData = JSON.parse(tempString.slice(6));
+              const content = parsedData.choices[0]?.delta?.content || "";
+              onDataPieceText += content;
+              tempString = '';
+            } catch(e) {
+
+            }
           }
+          // try {
+          //   // split 之后的空行，或者结束通知
+          //   if (dataStr.indexOf('data: ') !== 0 || dataStr === 'data: [DONE]')
+          //     continue
+          //   const parsedData = JSON.parse(dataStr.slice(6)) // [data: ]
+          //   const pieceText = parsedData.choices[0].delta.content || ''
+          //   onDataPieceText += pieceText
+          // } catch (e) {
+          //   // this.#log('chunk parse error')
+          // }
         }
         if (typeof onProgress === 'function') {
           onProgress(onDataPieceText, buf.toString())
