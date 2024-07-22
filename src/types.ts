@@ -81,6 +81,7 @@ export interface IChatGPTResponse {
    * questions and response text, tatal length
    */
   len: number
+  errorMessages?: Array<string>
 }
 /**
  * user message

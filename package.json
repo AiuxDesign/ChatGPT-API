@@ -1,6 +1,6 @@
 {
   "name": "@aiux/chatgpt",
-  "version": "1.4.5",
+  "version": "1.4.7",
   "description": "Node.js client for the official ChatGPT API, which supports CommonJS and Node.js V12+",
   "author": "aiux",
   "main": "./build/index.js",

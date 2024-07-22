@@ -586,6 +586,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
   );
   const stream = axiosResponse.data;
   const status = axiosResponse.status;
+  let errorMessages = [];
   if (__privateMethod(this, _validateAxiosResponse, validateAxiosResponse_fn).call(this, status)) {
     stream.on("data", (buf) => {
       var _a, _b;
@@ -596,6 +597,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
         tempString += dataStr;
         if (tempString.endsWith("}]}")) {
           if (!tempString.startsWith("data: ")) {
+            errorMessages.push(tempString);
             tempString = "";
             return;
           }
@@ -618,6 +620,8 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
         responseMessagge.text + concatMessages(messages)
       );
       responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
+      responseMessagge.errorMessages = errorMessages;
+      errorMessages = [];
       await innerOnEnd({
         success: true,
         data: responseMessagge,

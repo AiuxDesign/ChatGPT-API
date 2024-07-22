@@ -304,6 +304,7 @@ export class ChatGPT {
     )
     const stream = axiosResponse.data // 请求被取消之后变成 undefined
     const status = axiosResponse.status
+    let errorMessages = <Array<string>>[];
     if (this.#validateAxiosResponse(status)) {
       stream.on('data', (buf: any) => {
         const dataArr = buf.toString().split('\n')
@@ -313,6 +314,7 @@ export class ChatGPT {
           tempString += dataStr;
           if (tempString.endsWith('}]}')) {
             if (!tempString.startsWith('data: ')) {
+              errorMessages.push(tempString);
               tempString = '';
               return;
             }
@@ -347,6 +349,8 @@ export class ChatGPT {
         )
         responseMessagge.len =
           responseMessagge.text.length + concatMessages(messages).length
+        responseMessagge.errorMessages = errorMessages;
+        errorMessages = [];
         await innerOnEnd({
           success: true,
           data: responseMessagge,
