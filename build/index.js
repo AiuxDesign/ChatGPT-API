@@ -57,6 +57,10 @@ __export(src_exports, {
 });
 module.exports = __toCommonJS(src_exports);
 
+// src/Chatgpt.ts
+var import_identity = require("@azure/identity");
+var import_openai = require("openai");
+
 // src/ConversationStore.ts
 var import_keyv = __toESM(require("keyv"));
 var import_lru_cache = __toESM(require("lru-cache"));
@@ -349,7 +353,7 @@ function genDefaultSystemMessage() {
 Current date: ${currentDate}`
   };
 }
-var _apiKey, _model, _urls, _debug2, _requestConfig, _store2, _tokenizer2, _maxTokens, _limitTokensInAMessage, _ignoreServerMessagesInPrompt, _log2, _vendor, _streamChat, streamChat_fn, _chat, chat_fn, _validateAxiosResponse, validateAxiosResponse_fn, _makeConversations, makeConversations_fn, _genAuthorization, genAuthorization_fn;
+var _apiKey, _model, _urls, _debug2, _requestConfig, _store2, _tokenizer2, _maxTokens, _limitTokensInAMessage, _ignoreServerMessagesInPrompt, _log2, _vendor, _client, _streamChat, streamChat_fn, _chat, chat_fn, _validateAxiosResponse, validateAxiosResponse_fn, _makeConversations, makeConversations_fn, _genAuthorization, genAuthorization_fn;
 var ChatGPT = class {
   constructor(opts) {
     __privateAdd(this, _streamChat);
@@ -376,6 +380,7 @@ var ChatGPT = class {
     __privateAdd(this, _ignoreServerMessagesInPrompt, void 0);
     __privateAdd(this, _log2, void 0);
     __privateAdd(this, _vendor, "OPENAI");
+    __privateAdd(this, _client, null);
     const {
       apiKey,
       model = "gpt-3.5-turbo",
@@ -410,6 +415,15 @@ var ChatGPT = class {
       debug: __privateGet(this, _debug2),
       log: __privateGet(this, _log2)
     }));
+    this.initClient();
+  }
+  initClient() {
+    const credential = new import_identity.DefaultAzureCredential();
+    const scope = "https://cognitiveservices.azure.com/.default";
+    const endpoint = "https://2049-azure-openai.openai.azure.com/";
+    const azureADTokenProvider = (0, import_identity.getBearerTokenProvider)(credential, scope);
+    const apiVersion = "2024-05-01-preview";
+    __privateSet(this, _client, new import_openai.AzureOpenAI({ azureADTokenProvider, apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
   }
   /**
    * get related messages
@@ -595,38 +609,22 @@ _limitTokensInAMessage = new WeakMap();
 _ignoreServerMessagesInPrompt = new WeakMap();
 _log2 = new WeakMap();
 _vendor = new WeakMap();
+_client = new WeakMap();
 _streamChat = new WeakSet();
 streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
-  const axiosResponse = await post(
-    {
-      url: __privateGet(this, _urls).createChatCompletion,
-      ...__privateGet(this, _requestConfig),
-      headers: {
-        ...__privateGet(this, _vendor) === "OPENAI" ? { Authorization: __privateMethod(this, _genAuthorization, genAuthorization_fn).call(this) } : { "api-key": __privateGet(this, _apiKey) },
-        "Content-Type": "application/json",
-        ...__privateGet(this, _requestConfig).headers || {}
-      },
-      data: {
-        stream: true,
-        temperature,
-        ...__privateGet(this, _vendor) === "OPENAI" ? { model } : {},
-        messages,
-        ...__privateGet(this, _requestConfig).data || {}
-      },
-      responseType: "stream"
-    },
-    {
-      debug: __privateGet(this, _debug2),
-      log: __privateGet(this, _log2)
-    }
-  );
-  const stream = axiosResponse.data;
-  const status = axiosResponse.status;
+  var _a, _b, _c;
   let errorMessages = [];
-  if (__privateMethod(this, _validateAxiosResponse, validateAxiosResponse_fn).call(this, status)) {
-    stream.on("data", (buf) => {
-      var _a, _b;
-      const dataArr = buf.toString().split("\n");
+  const events = __privateGet(this, _client).chat.completions.create({
+    model,
+    temperature,
+    messages,
+    stream: true,
+    ...__privateGet(this, _requestConfig).data || {}
+  });
+  for await (const event of events) {
+    for (const choice of event.choices) {
+      const content = (_a = choice.delta) == null ? void 0 : _a.content;
+      const dataArr = content.toString().split("\n");
       let onDataPieceText = "";
       let tempString = "";
       for (const dataStr of dataArr) {
@@ -639,62 +637,30 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
           }
           try {
             const parsedData = JSON.parse(tempString.slice(6));
-            const content = ((_b = (_a = parsedData.choices[0]) == null ? void 0 : _a.delta) == null ? void 0 : _b.content) || "";
-            onDataPieceText += content;
+            const content2 = ((_c = (_b = parsedData.choices[0]) == null ? void 0 : _b.delta) == null ? void 0 : _c.content) || "";
+            onDataPieceText += content2;
             tempString = "";
           } catch (e) {
           }
         }
       }
       if (typeof onProgress === "function") {
-        onProgress(onDataPieceText, buf.toString());
+        onProgress(onDataPieceText, content.toString());
       }
       responseMessagge.text += onDataPieceText;
-    });
-    stream.on("end", async () => {
-      responseMessagge.tokens = __privateGet(this, _tokenizer2).getTokenCnt(
-        responseMessagge.text + concatMessages(messages)
-      );
-      responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
-      responseMessagge.errorMessages = errorMessages;
-      errorMessages = [];
-      await innerOnEnd({
-        success: true,
-        data: responseMessagge,
-        status
-      });
-    });
-  } else {
-    if (stream) {
-      let data = void 0;
-      stream.on("data", (buf) => {
-        data = JSON.parse(buf.toString());
-      });
-      stream.on("end", async () => {
-        var _a, _b;
-        await innerOnEnd({
-          success: false,
-          data: {
-            message: (_a = data == null ? void 0 : data.error) == null ? void 0 : _a.message,
-            type: (_b = data == null ? void 0 : data.error) == null ? void 0 : _b.type
-          },
-          status
-        });
-      });
-    } else {
-      const isTimeoutErr = String(axiosResponse).includes(
-        "AxiosError: timeout of"
-      );
-      await innerOnEnd({
-        success: false,
-        data: {
-          message: isTimeoutErr ? "request timeout" : "unknow err",
-          type: isTimeoutErr ? "error" : "unknow err"
-        },
-        status: 500
-      });
     }
   }
+  responseMessagge.tokens = __privateGet(this, _tokenizer2).getTokenCnt(
+    responseMessagge.text + concatMessages(messages)
+  );
+  responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
+  responseMessagge.errorMessages = errorMessages;
+  errorMessages = [];
+  await innerOnEnd({
+    success: true,
+    data: responseMessagge,
+    status: 200
+  });
 };
 _chat = new WeakSet();
 chat_fn = async function(messages, model) {

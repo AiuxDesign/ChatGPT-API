@@ -193,6 +193,7 @@ interface ISendMessagesOpts {
 declare class ChatGPT {
     #private;
     constructor(opts: IChatGPTParams);
+    initClient(): void;
     /**
      * get related messages
      * @param parentMessageId

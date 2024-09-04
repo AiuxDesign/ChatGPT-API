@@ -59,7 +59,7 @@ export class ChatGPT {
   #ignoreServerMessagesInPrompt: boolean
   #log: TLog
   #vendor: 'AZURE' | 'OPENAI' = 'OPENAI'
-  #client: AzureOpenAI
+  #client: AzureOpenAI | null = null
   constructor(opts: IChatGPTParams) {
     const {
       apiKey,
@@ -292,7 +292,7 @@ export class ChatGPT {
     model: string,
   ) {
     let errorMessages = <Array<string>>[];
-    const events = this.#client.chat.completions.create({
+    const events = this.#client!.chat.completions.create({
       model,
       temperature,
       messages,
