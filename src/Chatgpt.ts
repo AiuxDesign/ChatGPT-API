@@ -1,4 +1,6 @@
 import { AxiosRequestConfig } from 'axios'
+import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
+import { AzureOpenAI } from "openai";
 
 import ConversationStore from './ConversationStore'
 import Tokenizer from './Tokenizer'
@@ -57,6 +59,7 @@ export class ChatGPT {
   #ignoreServerMessagesInPrompt: boolean
   #log: TLog
   #vendor: 'AZURE' | 'OPENAI' = 'OPENAI'
+  #client: AzureOpenAI
   constructor(opts: IChatGPTParams) {
     const {
       apiKey,
@@ -94,6 +97,17 @@ export class ChatGPT {
       debug: this.#debug,
       log: this.#log,
     })
+
+    this.initClient();
+  }
+
+  initClient() {
+    const credential = new DefaultAzureCredential();
+    const scope = "https://cognitiveservices.azure.com/.default";
+    const endpoint = 'https://2049-azure-openai.openai.azure.com/';
+    const azureADTokenProvider = getBearerTokenProvider(credential, scope);
+    const apiVersion = "2024-05-01-preview";
+    this.#client = new AzureOpenAI({ azureADTokenProvider, apiVersion, apiKey: this.#apiKey, endpoint });
   }
 
   /**
@@ -277,37 +291,19 @@ export class ChatGPT {
     temperature: number,
     model: string,
   ) {
-    const axiosResponse = await post(
-      {
-        url: this.#urls.createChatCompletion,
-        ...this.#requestConfig,
-        headers: {
-          ...(this.#vendor === 'OPENAI'
-            ? { Authorization: this.#genAuthorization() }
-            : { 'api-key': this.#apiKey }),
-          'Content-Type': 'application/json',
-          ...(this.#requestConfig.headers || {}),
-        },
-        data: {
-          stream: true,
-          temperature,
-          ...(this.#vendor === 'OPENAI' ? { model } : {}),
-          messages,
-          ...(this.#requestConfig.data || {}),
-        },
-        responseType: 'stream',
-      },
-      {
-        debug: this.#debug,
-        log: this.#log,
-      },
-    )
-    const stream = axiosResponse.data // 请求被取消之后变成 undefined
-    const status = axiosResponse.status
     let errorMessages = <Array<string>>[];
-    if (this.#validateAxiosResponse(status)) {
-      stream.on('data', (buf: any) => {
-        const dataArr = buf.toString().split('\n')
+    const events = this.#client.chat.completions.create({
+      model,
+      temperature,
+      messages,
+      stream: true,
+      ...(this.#requestConfig.data || {}),
+    });
+    // @ts-ignore
+    for await (const event of events) {
+      for (const choice of event.choices) {
+        const content = choice.delta?.content;
+        const dataArr = content.toString().split('\n')
         let onDataPieceText = '';
         let tempString = '';
         for (const dataStr of dataArr) {
@@ -327,74 +323,26 @@ export class ChatGPT {
 
             }
           }
-          // try {
-          //   // split 之后的空行，或者结束通知
-          //   if (dataStr.indexOf('data: ') !== 0 || dataStr === 'data: [DONE]')
-          //     continue
-          //   const parsedData = JSON.parse(dataStr.slice(6)) // [data: ]
-          //   const pieceText = parsedData.choices[0].delta.content || ''
-          //   onDataPieceText += pieceText
-          // } catch (e) {
-          //   // this.#log('chunk parse error')
-          // }
         }
         if (typeof onProgress === 'function') {
-          onProgress(onDataPieceText, buf.toString())
+          onProgress(onDataPieceText, content.toString())
         }
         responseMessagge.text += onDataPieceText
-      })
-      stream.on('end', async () => {
-        responseMessagge.tokens = this.#tokenizer.getTokenCnt(
-          responseMessagge.text + concatMessages(messages),
-        )
-        responseMessagge.len =
-          responseMessagge.text.length + concatMessages(messages).length
-        responseMessagge.errorMessages = errorMessages;
-        errorMessages = [];
-        await innerOnEnd({
-          success: true,
-          data: responseMessagge,
-          status,
-        })
-      })
-    } else {
-      if (stream) {
-        let data: any = undefined
-        stream.on('data', (buf: any) => {
-          data = JSON.parse(buf.toString())
-          // that is stream
-          // error: {
-          //     message: 'Your access was terminated due to violation of our policies, please check your email for more information. If you believe this is in error and would like to appeal, please contact support@openai.com.',
-          //     type: 'access_terminated',
-          //     param: null,
-          //     code: null
-          //   }
-          // }
-        })
-        stream.on('end', async () => {
-          await innerOnEnd({
-            success: false,
-            data: {
-              message: data?.error?.message,
-              type: data?.error?.type,
-            },
-            status,
-          })
-        })
-      } else {
-        const isTimeoutErr = String(axiosResponse).includes(
-          'AxiosError: timeout of',
-        )
-        await innerOnEnd({
-          success: false,
-          data: {
-            message: isTimeoutErr ? 'request timeout' : 'unknow err',
-            type: isTimeoutErr ? 'error' : 'unknow err',
-          },
-          status: 500,
-        })
       }
     }
+    // stream end
+    responseMessagge.tokens = this.#tokenizer.getTokenCnt(
+      responseMessagge.text + concatMessages(messages),
+    )
+    responseMessagge.len =
+      responseMessagge.text.length + concatMessages(messages).length
+    responseMessagge.errorMessages = errorMessages;
+    errorMessages = [];
+    await innerOnEnd({
+      success: true,
+      data: responseMessagge,
+      status: 200,
+    })
   }
 
   async #chat(messages: { content: string; role: ERole }[], model: string) {
