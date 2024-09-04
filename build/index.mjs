@@ -22,7 +22,6 @@ var __privateMethod = (obj, member, method) => {
 };
 
 // src/Chatgpt.ts
-import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
 import { AzureOpenAI } from "openai";
 
 // src/ConversationStore.ts
@@ -382,12 +381,9 @@ var ChatGPT = class {
     this.initClient();
   }
   initClient() {
-    const credential = new DefaultAzureCredential();
-    const scope = "https://cognitiveservices.azure.com/.default";
     const endpoint = "https://2049-azure-openai.openai.azure.com/";
-    const azureADTokenProvider = getBearerTokenProvider(credential, scope);
     const apiVersion = "2024-05-01-preview";
-    __privateSet(this, _client, new AzureOpenAI({ azureADTokenProvider, apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
+    __privateSet(this, _client, new AzureOpenAI({ apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
   }
   /**
    * get related messages

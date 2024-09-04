@@ -58,7 +58,6 @@ __export(src_exports, {
 module.exports = __toCommonJS(src_exports);
 
 // src/Chatgpt.ts
-var import_identity = require("@azure/identity");
 var import_openai = require("openai");
 
 // src/ConversationStore.ts
@@ -418,12 +417,9 @@ var ChatGPT = class {
     this.initClient();
   }
   initClient() {
-    const credential = new import_identity.DefaultAzureCredential();
-    const scope = "https://cognitiveservices.azure.com/.default";
     const endpoint = "https://2049-azure-openai.openai.azure.com/";
-    const azureADTokenProvider = (0, import_identity.getBearerTokenProvider)(credential, scope);
     const apiVersion = "2024-05-01-preview";
-    __privateSet(this, _client, new import_openai.AzureOpenAI({ azureADTokenProvider, apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
+    __privateSet(this, _client, new import_openai.AzureOpenAI({ apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
   }
   /**
    * get related messages

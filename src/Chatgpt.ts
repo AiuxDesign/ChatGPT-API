@@ -1,5 +1,4 @@
 import { AxiosRequestConfig } from 'axios'
-import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
 import { AzureOpenAI } from "openai";
 
 import ConversationStore from './ConversationStore'
@@ -102,12 +101,9 @@ export class ChatGPT {
   }
 
   initClient() {
-    const credential = new DefaultAzureCredential();
-    const scope = "https://cognitiveservices.azure.com/.default";
     const endpoint = 'https://2049-azure-openai.openai.azure.com/';
-    const azureADTokenProvider = getBearerTokenProvider(credential, scope);
     const apiVersion = "2024-05-01-preview";
-    this.#client = new AzureOpenAI({ azureADTokenProvider, apiVersion, apiKey: this.#apiKey, endpoint });
+    this.#client = new AzureOpenAI({ apiVersion, apiKey: this.#apiKey, endpoint });
   }
 
   /**
