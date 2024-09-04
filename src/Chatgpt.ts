@@ -288,6 +288,7 @@ export class ChatGPT {
     model: string,
   ) {
     let errorMessages = <Array<string>>[];
+    this.#log(`this.#client=${this.#client}`);
     const events = this.#client!.chat.completions.create({
       model,
       temperature,
@@ -299,6 +300,7 @@ export class ChatGPT {
     for await (const event of events) {
       for (const choice of event.choices) {
         const content = choice.delta?.content;
+        this.#log(`content=${content}`);
         const dataArr = content.toString().split('\n')
         let onDataPieceText = '';
         let tempString = '';
@@ -321,6 +323,7 @@ export class ChatGPT {
           }
         }
         if (typeof onProgress === 'function') {
+          this.#log(`onProgress：${onDataPieceText}`);
           onProgress(onDataPieceText, content.toString())
         }
         responseMessagge.text += onDataPieceText
@@ -334,6 +337,7 @@ export class ChatGPT {
       responseMessagge.text.length + concatMessages(messages).length
     responseMessagge.errorMessages = errorMessages;
     errorMessages = [];
+    this.#log(`onProgress：${JSON.stringify(responseMessagge)}`);
     await innerOnEnd({
       success: true,
       data: responseMessagge,

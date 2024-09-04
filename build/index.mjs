@@ -574,6 +574,7 @@ _streamChat = new WeakSet();
 streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
   var _a, _b, _c;
   let errorMessages = [];
+  __privateGet(this, _log2).call(this, `this.#client=${__privateGet(this, _client)}`);
   const events = __privateGet(this, _client).chat.completions.create({
     model,
     temperature,
@@ -584,6 +585,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
   for await (const event of events) {
     for (const choice of event.choices) {
       const content = (_a = choice.delta) == null ? void 0 : _a.content;
+      __privateGet(this, _log2).call(this, `content=${content}`);
       const dataArr = content.toString().split("\n");
       let onDataPieceText = "";
       let tempString = "";
@@ -605,6 +607,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
         }
       }
       if (typeof onProgress === "function") {
+        __privateGet(this, _log2).call(this, `onProgress\uFF1A${onDataPieceText}`);
         onProgress(onDataPieceText, content.toString());
       }
       responseMessagge.text += onDataPieceText;
@@ -616,6 +619,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
   responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
   responseMessagge.errorMessages = errorMessages;
   errorMessages = [];
+  __privateGet(this, _log2).call(this, `onProgress\uFF1A${JSON.stringify(responseMessagge)}`);
   await innerOnEnd({
     success: true,
     data: responseMessagge,
