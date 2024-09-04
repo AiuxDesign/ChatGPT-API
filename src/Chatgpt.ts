@@ -103,7 +103,11 @@ export class ChatGPT {
   initClient() {
     const endpoint = 'https://2049-azure-openai.openai.azure.com/';
     const apiVersion = "2024-05-01-preview";
-    this.#client = new AzureOpenAI({ apiVersion, apiKey: this.#apiKey, endpoint });
+    try {
+      this.#client = new AzureOpenAI({ apiVersion, apiKey: this.#apiKey, endpoint });
+    } catch(e) {
+      this.#log(`init AzureOpenAI error: ${JSON.stringify(e)}`);
+    }
   }
 
   /**
@@ -288,14 +292,27 @@ export class ChatGPT {
     model: string,
   ) {
     let errorMessages = <Array<string>>[];
-    this.#log(`this.#client=${this.#client}`);
-    const events = this.#client!.chat.completions.create({
-      model,
-      temperature,
-      messages,
-      stream: true,
-      ...(this.#requestConfig.data || {}),
-    });
+    this.#log('111');
+    this.#log(`model:${model}`);
+    this.#log(`temperature:${temperature}`);
+    this.#log(`messages:${JSON.stringify(messages)}`);
+    this.#log(`data:${JSON.stringify(this.#requestConfig.data)}`);
+    let events;
+    if (this.#client) {
+      try {
+        events = this.#client.chat.completions.create({
+          model,
+          temperature,
+          messages,
+          stream: true,
+          ...(this.#requestConfig.data || {}),
+        });
+      } catch(e) {
+        this.#log(`create completions error: ${JSON.stringify(e)}`);
+      }
+    }
+    this.#log('222');
+    this.#log(`events:${JSON.stringify(events)}`);
     // @ts-ignore
     for await (const event of events) {
       for (const choice of event.choices) {
@@ -329,6 +346,7 @@ export class ChatGPT {
         responseMessagge.text += onDataPieceText
       }
     }
+    this.#log('333');
     // stream end
     responseMessagge.tokens = this.#tokenizer.getTokenCnt(
       responseMessagge.text + concatMessages(messages),

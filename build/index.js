@@ -419,7 +419,11 @@ var ChatGPT = class {
   initClient() {
     const endpoint = "https://2049-azure-openai.openai.azure.com/";
     const apiVersion = "2024-05-01-preview";
-    __privateSet(this, _client, new import_openai.AzureOpenAI({ apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
+    try {
+      __privateSet(this, _client, new import_openai.AzureOpenAI({ apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
+    } catch (e) {
+      __privateGet(this, _log2).call(this, `init AzureOpenAI error: ${JSON.stringify(e)}`);
+    }
   }
   /**
    * get related messages
@@ -610,14 +614,27 @@ _streamChat = new WeakSet();
 streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
   var _a, _b, _c;
   let errorMessages = [];
-  __privateGet(this, _log2).call(this, `this.#client=${__privateGet(this, _client)}`);
-  const events = __privateGet(this, _client).chat.completions.create({
-    model,
-    temperature,
-    messages,
-    stream: true,
-    ...__privateGet(this, _requestConfig).data || {}
-  });
+  __privateGet(this, _log2).call(this, "111");
+  __privateGet(this, _log2).call(this, `model:${model}`);
+  __privateGet(this, _log2).call(this, `temperature:${temperature}`);
+  __privateGet(this, _log2).call(this, `messages:${JSON.stringify(messages)}`);
+  __privateGet(this, _log2).call(this, `data:${JSON.stringify(__privateGet(this, _requestConfig).data)}`);
+  let events;
+  if (__privateGet(this, _client)) {
+    try {
+      events = __privateGet(this, _client).chat.completions.create({
+        model,
+        temperature,
+        messages,
+        stream: true,
+        ...__privateGet(this, _requestConfig).data || {}
+      });
+    } catch (e) {
+      __privateGet(this, _log2).call(this, `create completions error: ${JSON.stringify(e)}`);
+    }
+  }
+  __privateGet(this, _log2).call(this, "222");
+  __privateGet(this, _log2).call(this, `events:${JSON.stringify(events)}`);
   for await (const event of events) {
     for (const choice of event.choices) {
       const content = (_a = choice.delta) == null ? void 0 : _a.content;
@@ -649,6 +666,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
       responseMessagge.text += onDataPieceText;
     }
   }
+  __privateGet(this, _log2).call(this, "333");
   responseMessagge.tokens = __privateGet(this, _tokenizer2).getTokenCnt(
     responseMessagge.text + concatMessages(messages)
   );
