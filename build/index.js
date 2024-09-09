@@ -352,10 +352,6 @@ function concatMessages(messages) {
 }
 
 // src/Chatgpt.ts
-var commonHeader = {
-  "Content-Type": "Content-Type",
-  "response_format": "json_object"
-};
 function genDefaultSystemMessage() {
   const currentDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   return {
@@ -523,7 +519,7 @@ var ChatGPT = class {
             await onEnd(endData);
             resolve(endData);
           };
-          await __privateMethod(this, _streamChat, streamChat_fn).call(this, messages, onProgress, responseMessage, innerOnEnd, temperature, model);
+          await __privateMethod(this, _streamChat, streamChat_fn).call(this, messages, onProgress, responseMessage, innerOnEnd, temperature);
         } else {
           const chatResponse = await __privateMethod(this, _chat, chat_fn).call(this, messages, model);
           if (!chatResponse.success) {
@@ -607,21 +603,19 @@ _log2 = new WeakMap();
 _vendor = new WeakMap();
 _url = new WeakMap();
 _streamChat = new WeakSet();
-streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
+streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature) {
+  __privateGet(this, _log2).call(this, "in streamChat.");
   const axiosResponse = await post(
     {
       url: __privateGet(this, _url),
-      ...__privateGet(this, _requestConfig),
+      // ...this.#requestConfig,
       headers: {
-        "api-key": __privateGet(this, _apiKey),
-        ...commonHeader
+        "api-key": __privateGet(this, _apiKey)
       },
       data: {
         stream: true,
         temperature,
-        ...__privateGet(this, _vendor) === "OPENAI" ? { model } : {},
-        messages,
-        ...__privateGet(this, _requestConfig).data || {}
+        messages
       },
       responseType: "stream"
     },
@@ -632,10 +626,13 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
   );
   const stream = axiosResponse.data;
   const status = axiosResponse.status;
+  __privateGet(this, _log2).call(this, `status\uFF1A${status}`);
   let errorMessages = [];
   if (__privateMethod(this, _validateAxiosResponse, validateAxiosResponse_fn).call(this, status)) {
+    __privateGet(this, _log2).call(this, "in stream data event.");
     stream.on("data", (buf) => {
       var _a, _b;
+      __privateGet(this, _log2).call(this, "receive data\uFF1A${buf.toString()}");
       const dataArr = buf.toString().split("\n");
       let onDataPieceText = "";
       let tempString = "";
@@ -675,6 +672,7 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
       });
     });
   } else {
+    __privateGet(this, _log2).call(this, "in stream data event else.");
     if (stream) {
       let data = void 0;
       stream.on("data", (buf) => {
