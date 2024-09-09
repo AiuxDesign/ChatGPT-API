@@ -25,11 +25,6 @@ import {
   concatMessages,
 } from './utils'
 
-const commonHeader = {
-  'Content-Type': 'Content-Type',
-  'response_format': 'json_object'
-};
-
 function genDefaultSystemMessage(): IChatGPTHTTPDataMessage {
   const currentDate = new Date().toISOString().split('T')[0]
   return {
@@ -208,7 +203,6 @@ export class ChatGPT {
             responseMessage,
             innerOnEnd,
             temperature,
-            model,
           )
         } else {
           const chatResponse = await this.#chat(messages, model)
@@ -266,22 +260,19 @@ export class ChatGPT {
     responseMessagge: IChatGPTResponse,
     innerOnEnd: (d: IChatCompletionStreamOnEndData) => void,
     temperature: number,
-    model: string,
   ) {
+    this.#log('in streamChat.');
     const axiosResponse = await post(
       {
         url: this.#url,
-        ...this.#requestConfig,
+        // ...this.#requestConfig,
         headers: { 
           'api-key': this.#apiKey,
-          ...commonHeader,
         },
         data: {
           stream: true,
           temperature,
-          ...(this.#vendor === 'OPENAI' ? { model } : {}),
           messages,
-          ...(this.#requestConfig.data || {}),
         },
         responseType: 'stream',
       },
@@ -293,9 +284,12 @@ export class ChatGPT {
     // 请求被取消之后变成 undefined
     const stream = axiosResponse.data; 
     const status = axiosResponse.status;
+    this.#log(`status：${status}`);
     let errorMessages = <Array<string>>[];
     if (this.#validateAxiosResponse(status)) {
+      this.#log('in stream data event.');
       stream.on('data', (buf: any) => {
+        this.#log('receive data：${buf.toString()}');
         const dataArr = buf.toString().split('\n')
         let onDataPieceText = '';
         let tempString = '';
@@ -337,6 +331,7 @@ export class ChatGPT {
         })
       })
     } else {
+      this.#log('in stream data event else.');
       if (stream) {
         let data: any = undefined
         stream.on('data', (buf: any) => {
