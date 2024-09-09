@@ -134,7 +134,19 @@ export interface IChatGPTParams {
   /**
    * apiKey, you can get it in https://platform.openai.com/account/api-keys,You can apply for up to 5 at most.
    */
-  apiKey: string
+  apiKey: string,
+  /**
+   * Azure openAi endpoint
+   */
+  endpoint: string,
+  /**
+   * Azure openAi deployments
+   */
+  deployments: string,
+  /**
+   * Azure openAi apiVersion
+   */
+  apiVersion: string,
   /**
    * model，default is 'gpt-3.5-turbo'
    */

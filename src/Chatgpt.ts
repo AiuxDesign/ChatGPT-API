@@ -1,6 +1,4 @@
 import { AxiosRequestConfig } from 'axios'
-import { AzureOpenAI } from "openai";
-
 import ConversationStore from './ConversationStore'
 import Tokenizer from './Tokenizer'
 import {
@@ -18,7 +16,7 @@ import {
   ISendMessagesOpts,
 } from './types'
 import { post } from './utils/request'
-import URLS from './utils/urls'
+import URLS, { azure } from './utils/urls'
 import {
   genId,
   log as defaultLog,
@@ -27,14 +25,10 @@ import {
   concatMessages,
 } from './utils'
 
-// https://platform.openai.com/docs/api-reference/chat
-// curl https://api.openai.com/v1/chat/completions \
-//   -H 'Content-Type: application/json' \
-//   -H 'Authorization: Bearer YOUR_API_KEY' \
-//   -d '{
-//   "model": "gpt-3.5-turbo",
-//   "messages": [{"role": "user", "content": "Hello!"}]
-// }'
+const commonHeader = {
+  'Content-Type': 'Content-Type',
+  'response_format': 'json_object'
+};
 
 function genDefaultSystemMessage(): IChatGPTHTTPDataMessage {
   const currentDate = new Date().toISOString().split('T')[0]
@@ -44,11 +38,9 @@ function genDefaultSystemMessage(): IChatGPTHTTPDataMessage {
   }
 }
 
-// role https://platform.openai.com/docs/guides/chat/introduction
 export class ChatGPT {
   #apiKey = ''
   #model = ''
-  #urls = URLS
   #debug = false
   #requestConfig: AxiosRequestConfig
   #store: ConversationStore
@@ -58,11 +50,14 @@ export class ChatGPT {
   #ignoreServerMessagesInPrompt: boolean
   #log: TLog
   #vendor: 'AZURE' | 'OPENAI' = 'OPENAI'
-  #client: AzureOpenAI | null = null
+  #url = '';
   constructor(opts: IChatGPTParams) {
     const {
       apiKey,
       model = 'gpt-3.5-turbo',
+      endpoint,
+      deployments,
+      apiVersion,
       debug = false,
       requestConfig = {},
       storeConfig = {},
@@ -71,7 +66,6 @@ export class ChatGPT {
       limitTokensInAMessage = 1000,
       ignoreServerMessagesInPrompt = false,
       log = defaultLog,
-      AZURE,
     } = opts
 
     this.#apiKey = apiKey
@@ -83,31 +77,14 @@ export class ChatGPT {
     this.#limitTokensInAMessage = limitTokensInAMessage
     this.#ignoreServerMessagesInPrompt = ignoreServerMessagesInPrompt
     this.#log = log
-    if (AZURE) {
-      this.#vendor = 'AZURE'
-      this.#urls = {
-        ...this.#urls,
-        ...AZURE,
-      }
-    }
+
+    this.#url = azure.chat.completions.url.create(endpoint, deployments, apiVersion)
 
     this.#store = new ConversationStore({
       ...storeConfig,
       debug: this.#debug,
       log: this.#log,
     })
-
-    this.initClient();
-  }
-
-  initClient() {
-    const endpoint = 'https://2049-azure-openai.openai.azure.com/';
-    const apiVersion = "2024-05-01-preview";
-    try {
-      this.#client = new AzureOpenAI({ apiVersion, apiKey: this.#apiKey, endpoint });
-    } catch(e) {
-      this.#log(`init AzureOpenAI error: ${JSON.stringify(e)}`);
-    }
   }
 
   /**
@@ -291,34 +268,35 @@ export class ChatGPT {
     temperature: number,
     model: string,
   ) {
-    let errorMessages = <Array<string>>[];
-    this.#log('111');
-    this.#log(`model:${model}`);
-    this.#log(`temperature:${temperature}`);
-    this.#log(`messages:${JSON.stringify(messages)}`);
-    this.#log(`data:${JSON.stringify(this.#requestConfig.data)}`);
-    let events;
-    if (this.#client) {
-      try {
-        events = this.#client.chat.completions.create({
-          model,
-          temperature,
-          messages,
+    const axiosResponse = await post(
+      {
+        url: this.#url,
+        ...this.#requestConfig,
+        headers: { 
+          'api-key': this.#apiKey,
+          ...commonHeader,
+        },
+        data: {
           stream: true,
+          temperature,
+          ...(this.#vendor === 'OPENAI' ? { model } : {}),
+          messages,
           ...(this.#requestConfig.data || {}),
-        });
-      } catch(e) {
-        this.#log(`create completions error: ${JSON.stringify(e)}`);
-      }
-    }
-    this.#log('222');
-    this.#log(`events:${JSON.stringify(events)}`);
-    // @ts-ignore
-    for await (const event of events) {
-      for (const choice of event.choices) {
-        const content = choice.delta?.content;
-        this.#log(`content=${content}`);
-        const dataArr = content.toString().split('\n')
+        },
+        responseType: 'stream',
+      },
+      {
+        debug: this.#debug,
+        log: this.#log,
+      },
+    );
+    // 请求被取消之后变成 undefined
+    const stream = axiosResponse.data; 
+    const status = axiosResponse.status;
+    let errorMessages = <Array<string>>[];
+    if (this.#validateAxiosResponse(status)) {
+      stream.on('data', (buf: any) => {
+        const dataArr = buf.toString().split('\n')
         let onDataPieceText = '';
         let tempString = '';
         for (const dataStr of dataArr) {
@@ -335,38 +313,65 @@ export class ChatGPT {
               onDataPieceText += content;
               tempString = '';
             } catch(e) {
-
+              // empty
             }
           }
         }
         if (typeof onProgress === 'function') {
-          this.#log(`onProgress：${onDataPieceText}`);
-          onProgress(onDataPieceText, content.toString())
+          onProgress(onDataPieceText, buf.toString())
         }
         responseMessagge.text += onDataPieceText
+      });
+      stream.on('end', async () => {
+        responseMessagge.tokens = this.#tokenizer.getTokenCnt(
+          responseMessagge.text + concatMessages(messages),
+        )
+        responseMessagge.len =
+          responseMessagge.text.length + concatMessages(messages).length
+        responseMessagge.errorMessages = errorMessages;
+        errorMessages = [];
+        await innerOnEnd({
+          success: true,
+          data: responseMessagge,
+          status,
+        })
+      })
+    } else {
+      if (stream) {
+        let data: any = undefined
+        stream.on('data', (buf: any) => {
+          data = JSON.parse(buf.toString());
+        });
+        stream.on('end', async () => {
+          await innerOnEnd({
+            success: false,
+            data: {
+              message: data?.error?.message,
+              type: data?.error?.type,
+            },
+            status,
+          })
+        })
+      } else {
+        const isTimeoutErr = String(axiosResponse).includes(
+          'AxiosError: timeout of',
+        );
+        await innerOnEnd({
+          success: false,
+          data: {
+            message: isTimeoutErr ? 'request timeout' : 'unknow err',
+            type: isTimeoutErr ? 'error' : 'unknow err',
+          },
+          status: 500,
+        });
       }
     }
-    this.#log('333');
-    // stream end
-    responseMessagge.tokens = this.#tokenizer.getTokenCnt(
-      responseMessagge.text + concatMessages(messages),
-    )
-    responseMessagge.len =
-      responseMessagge.text.length + concatMessages(messages).length
-    responseMessagge.errorMessages = errorMessages;
-    errorMessages = [];
-    this.#log(`onProgress：${JSON.stringify(responseMessagge)}`);
-    await innerOnEnd({
-      success: true,
-      data: responseMessagge,
-      status: 200,
-    })
   }
 
   async #chat(messages: { content: string; role: ERole }[], model: string) {
     const axiosResponse = await post(
       {
-        url: this.#urls.createChatCompletion,
+        url: this.#url,
         ...this.#requestConfig,
         headers: {
           ...(this.#vendor === 'OPENAI'

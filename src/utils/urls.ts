@@ -9,4 +9,16 @@ const urls = {
   createModeration: 'https://api.openai.com/v1/moderations' // post
 }
 
+export const azure = {
+  chat: {
+    completions: {
+      url: {
+        create (endpoint: string, deployments: string, apiVersion: string) {
+          return `https://${endpoint}/openai/deployments/${deployments}/chat/completions?api-version=${apiVersion}`;
+        }
+      }
+    }
+  }
+}
+
 export default urls
