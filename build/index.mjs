@@ -21,9 +21,6 @@ var __privateMethod = (obj, member, method) => {
   return method;
 };
 
-// src/Chatgpt.ts
-import { AzureOpenAI } from "openai";
-
 // src/ConversationStore.ts
 import Keyv from "keyv";
 import LRUCache from "lru-cache";
@@ -280,6 +277,17 @@ var urls = {
   createModeration: "https://api.openai.com/v1/moderations"
   // post
 };
+var azure = {
+  chat: {
+    completions: {
+      url: {
+        create(endpoint, deployments, apiVersion) {
+          return `https://${endpoint}/openai/deployments/${deployments}/chat/completions?api-version=${apiVersion}`;
+        }
+      }
+    }
+  }
+};
 var urls_default = urls;
 
 // src/utils/index.ts
@@ -308,6 +316,10 @@ function concatMessages(messages) {
 }
 
 // src/Chatgpt.ts
+var commonHeader = {
+  "Content-Type": "Content-Type",
+  "response_format": "json_object"
+};
 function genDefaultSystemMessage() {
   const currentDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   return {
@@ -316,7 +328,7 @@ function genDefaultSystemMessage() {
 Current date: ${currentDate}`
   };
 }
-var _apiKey, _model, _urls, _debug2, _requestConfig, _store2, _tokenizer2, _maxTokens, _limitTokensInAMessage, _ignoreServerMessagesInPrompt, _log2, _vendor, _client, _streamChat, streamChat_fn, _chat, chat_fn, _validateAxiosResponse, validateAxiosResponse_fn, _makeConversations, makeConversations_fn, _genAuthorization, genAuthorization_fn;
+var _apiKey, _model, _debug2, _requestConfig, _store2, _tokenizer2, _maxTokens, _limitTokensInAMessage, _ignoreServerMessagesInPrompt, _log2, _vendor, _url, _streamChat, streamChat_fn, _chat, chat_fn, _validateAxiosResponse, validateAxiosResponse_fn, _makeConversations, makeConversations_fn, _genAuthorization, genAuthorization_fn;
 var ChatGPT = class {
   constructor(opts) {
     __privateAdd(this, _streamChat);
@@ -333,7 +345,6 @@ var ChatGPT = class {
     __privateAdd(this, _genAuthorization);
     __privateAdd(this, _apiKey, "");
     __privateAdd(this, _model, "");
-    __privateAdd(this, _urls, urls_default);
     __privateAdd(this, _debug2, false);
     __privateAdd(this, _requestConfig, void 0);
     __privateAdd(this, _store2, void 0);
@@ -343,10 +354,13 @@ var ChatGPT = class {
     __privateAdd(this, _ignoreServerMessagesInPrompt, void 0);
     __privateAdd(this, _log2, void 0);
     __privateAdd(this, _vendor, "OPENAI");
-    __privateAdd(this, _client, null);
+    __privateAdd(this, _url, "");
     const {
       apiKey,
       model = "gpt-3.5-turbo",
+      endpoint,
+      deployments,
+      apiVersion,
       debug = false,
       requestConfig = {},
       storeConfig = {},
@@ -354,8 +368,7 @@ var ChatGPT = class {
       maxTokens = 4096,
       limitTokensInAMessage = 1e3,
       ignoreServerMessagesInPrompt = false,
-      log: log2 = log,
-      AZURE
+      log: log2 = log
     } = opts;
     __privateSet(this, _apiKey, apiKey);
     __privateSet(this, _model, model);
@@ -366,28 +379,12 @@ var ChatGPT = class {
     __privateSet(this, _limitTokensInAMessage, limitTokensInAMessage);
     __privateSet(this, _ignoreServerMessagesInPrompt, ignoreServerMessagesInPrompt);
     __privateSet(this, _log2, log2);
-    if (AZURE) {
-      __privateSet(this, _vendor, "AZURE");
-      __privateSet(this, _urls, {
-        ...__privateGet(this, _urls),
-        ...AZURE
-      });
-    }
+    __privateSet(this, _url, azure.chat.completions.url.create(endpoint, deployments, apiVersion));
     __privateSet(this, _store2, new ConversationStore({
       ...storeConfig,
       debug: __privateGet(this, _debug2),
       log: __privateGet(this, _log2)
     }));
-    this.initClient();
-  }
-  initClient() {
-    const endpoint = "https://2049-azure-openai.openai.azure.com/";
-    const apiVersion = "2024-05-01-preview";
-    try {
-      __privateSet(this, _client, new AzureOpenAI({ apiVersion, apiKey: __privateGet(this, _apiKey), endpoint }));
-    } catch (e) {
-      __privateGet(this, _log2).call(this, `init AzureOpenAI error: ${JSON.stringify(e)}`);
-    }
   }
   /**
    * get related messages
@@ -563,7 +560,6 @@ var ChatGPT = class {
 };
 _apiKey = new WeakMap();
 _model = new WeakMap();
-_urls = new WeakMap();
 _debug2 = new WeakMap();
 _requestConfig = new WeakMap();
 _store2 = new WeakMap();
@@ -573,37 +569,38 @@ _limitTokensInAMessage = new WeakMap();
 _ignoreServerMessagesInPrompt = new WeakMap();
 _log2 = new WeakMap();
 _vendor = new WeakMap();
-_client = new WeakMap();
+_url = new WeakMap();
 _streamChat = new WeakSet();
 streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEnd, temperature, model) {
-  var _a, _b, _c;
-  let errorMessages = [];
-  __privateGet(this, _log2).call(this, "111");
-  __privateGet(this, _log2).call(this, `model:${model}`);
-  __privateGet(this, _log2).call(this, `temperature:${temperature}`);
-  __privateGet(this, _log2).call(this, `messages:${JSON.stringify(messages)}`);
-  __privateGet(this, _log2).call(this, `data:${JSON.stringify(__privateGet(this, _requestConfig).data)}`);
-  let events;
-  if (__privateGet(this, _client)) {
-    try {
-      events = __privateGet(this, _client).chat.completions.create({
-        model,
-        temperature,
-        messages,
+  const axiosResponse = await post(
+    {
+      url: __privateGet(this, _url),
+      ...__privateGet(this, _requestConfig),
+      headers: {
+        "api-key": __privateGet(this, _apiKey),
+        ...commonHeader
+      },
+      data: {
         stream: true,
+        temperature,
+        ...__privateGet(this, _vendor) === "OPENAI" ? { model } : {},
+        messages,
         ...__privateGet(this, _requestConfig).data || {}
-      });
-    } catch (e) {
-      __privateGet(this, _log2).call(this, `create completions error: ${JSON.stringify(e)}`);
+      },
+      responseType: "stream"
+    },
+    {
+      debug: __privateGet(this, _debug2),
+      log: __privateGet(this, _log2)
     }
-  }
-  __privateGet(this, _log2).call(this, "222");
-  __privateGet(this, _log2).call(this, `events:${JSON.stringify(events)}`);
-  for await (const event of events) {
-    for (const choice of event.choices) {
-      const content = (_a = choice.delta) == null ? void 0 : _a.content;
-      __privateGet(this, _log2).call(this, `content=${content}`);
-      const dataArr = content.toString().split("\n");
+  );
+  const stream = axiosResponse.data;
+  const status = axiosResponse.status;
+  let errorMessages = [];
+  if (__privateMethod(this, _validateAxiosResponse, validateAxiosResponse_fn).call(this, status)) {
+    stream.on("data", (buf) => {
+      var _a, _b;
+      const dataArr = buf.toString().split("\n");
       let onDataPieceText = "";
       let tempString = "";
       for (const dataStr of dataArr) {
@@ -616,40 +613,69 @@ streamChat_fn = async function(messages, onProgress, responseMessagge, innerOnEn
           }
           try {
             const parsedData = JSON.parse(tempString.slice(6));
-            const content2 = ((_c = (_b = parsedData.choices[0]) == null ? void 0 : _b.delta) == null ? void 0 : _c.content) || "";
-            onDataPieceText += content2;
+            const content = ((_b = (_a = parsedData.choices[0]) == null ? void 0 : _a.delta) == null ? void 0 : _b.content) || "";
+            onDataPieceText += content;
             tempString = "";
           } catch (e) {
           }
         }
       }
       if (typeof onProgress === "function") {
-        __privateGet(this, _log2).call(this, `onProgress\uFF1A${onDataPieceText}`);
-        onProgress(onDataPieceText, content.toString());
+        onProgress(onDataPieceText, buf.toString());
       }
       responseMessagge.text += onDataPieceText;
+    });
+    stream.on("end", async () => {
+      responseMessagge.tokens = __privateGet(this, _tokenizer2).getTokenCnt(
+        responseMessagge.text + concatMessages(messages)
+      );
+      responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
+      responseMessagge.errorMessages = errorMessages;
+      errorMessages = [];
+      await innerOnEnd({
+        success: true,
+        data: responseMessagge,
+        status
+      });
+    });
+  } else {
+    if (stream) {
+      let data = void 0;
+      stream.on("data", (buf) => {
+        data = JSON.parse(buf.toString());
+      });
+      stream.on("end", async () => {
+        var _a, _b;
+        await innerOnEnd({
+          success: false,
+          data: {
+            message: (_a = data == null ? void 0 : data.error) == null ? void 0 : _a.message,
+            type: (_b = data == null ? void 0 : data.error) == null ? void 0 : _b.type
+          },
+          status
+        });
+      });
+    } else {
+      const isTimeoutErr = String(axiosResponse).includes(
+        "AxiosError: timeout of"
+      );
+      await innerOnEnd({
+        success: false,
+        data: {
+          message: isTimeoutErr ? "request timeout" : "unknow err",
+          type: isTimeoutErr ? "error" : "unknow err"
+        },
+        status: 500
+      });
     }
   }
-  __privateGet(this, _log2).call(this, "333");
-  responseMessagge.tokens = __privateGet(this, _tokenizer2).getTokenCnt(
-    responseMessagge.text + concatMessages(messages)
-  );
-  responseMessagge.len = responseMessagge.text.length + concatMessages(messages).length;
-  responseMessagge.errorMessages = errorMessages;
-  errorMessages = [];
-  __privateGet(this, _log2).call(this, `onProgress\uFF1A${JSON.stringify(responseMessagge)}`);
-  await innerOnEnd({
-    success: true,
-    data: responseMessagge,
-    status: 200
-  });
 };
 _chat = new WeakSet();
 chat_fn = async function(messages, model) {
   var _a, _b;
   const axiosResponse = await post(
     {
-      url: __privateGet(this, _urls).createChatCompletion,
+      url: __privateGet(this, _url),
       ...__privateGet(this, _requestConfig),
       headers: {
         ...__privateGet(this, _vendor) === "OPENAI" ? { Authorization: __privateMethod(this, _genAuthorization, genAuthorization_fn).call(this) } : { "api-key": __privateGet(this, _apiKey) },

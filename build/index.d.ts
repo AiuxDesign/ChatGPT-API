@@ -108,6 +108,18 @@ interface IChatGPTParams {
      */
     apiKey: string;
     /**
+     * Azure openAi endpoint
+     */
+    endpoint: string;
+    /**
+     * Azure openAi deployments
+     */
+    deployments: string;
+    /**
+     * Azure openAi apiVersion
+     */
+    apiVersion: string;
+    /**
      * model，default is 'gpt-3.5-turbo'
      */
     model?: string;
@@ -193,7 +205,6 @@ interface ISendMessagesOpts {
 declare class ChatGPT {
     #private;
     constructor(opts: IChatGPTParams);
-    initClient(): void;
     /**
      * get related messages
      * @param parentMessageId
