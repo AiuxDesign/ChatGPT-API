@@ -279,7 +279,7 @@ export class ChatGPT {
   ) {
     const axiosResponse = await post(
       {
-        url: this.#urls.createChatCompletion,
+        url: this.#urls.openai.createChatCompletion,
         ...this.#requestConfig,
         headers: {
           ...(this.#vendor === 'OPENAI'
@@ -377,10 +377,265 @@ export class ChatGPT {
     }
   }
 
+  /**
+   * send message to ChatGPT server
+   * @param opts.text new message
+   * @param opts.systemPrompt prompt message
+   * @param opts.parentMessageId
+   */
+  sendMessageWithOpenRouter(opts: ISendMessagesOpts | string | TCommonMessage[]) {
+    return new Promise<IChatCompletionStreamOnEndData>(
+      async (resolve, reject) => {
+        if (isString(opts)) {
+          opts = { text: opts as string }
+        } else if (isArray(opts)) {
+          opts = { initialMessages: opts as TCommonMessage[] }
+        } else {
+          // 使用对象传入，必须要设置 text
+          if (
+            !(opts as ISendMessagesOpts).text &&
+            !(opts as ISendMessagesOpts).initialMessages
+          ) {
+            return reject(
+              'You are passing in an object and it is required to set the text or initialMessages attribute.',
+            )
+          }
+        }
+        let {
+          text = '',
+          systemPrompt = undefined,
+          parentMessageId = undefined,
+          onProgress = false,
+          onEnd = () => {},
+          initialMessages = undefined,
+          temperature = 1,
+          model = this.#model,
+        } = opts as ISendMessagesOpts
+        // 是否需要把数据存储到 store 中
+        const shouldAddToStore = !initialMessages
+        if (systemPrompt) {
+          if (parentMessageId)
+            await this.#store.clear1Conversation(parentMessageId)
+          parentMessageId = undefined
+        }
+        const userMessage: IChatGPTUserMessage = {
+          id: genId(),
+          text,
+          role: ERole.user,
+          parentMessageId,
+          tokens: this.#tokenizer.getTokenCnt(text),
+        }
+        let messages: IChatGPTHTTPDataMessage[] = []
+        if (shouldAddToStore) {
+          messages = await this.#makeConversations(userMessage, systemPrompt)
+        } else {
+          messages = (initialMessages as TCommonMessage[]).map((msg) => ({
+            role: msg.role,
+            content: msg.text,
+          }))
+        }
+        if (this.#debug) {
+          this.#log('history messages', messages)
+        }
+        if (onProgress) {
+          const responseMessage: IChatGPTResponse = {
+            id: genId(),
+            text: '',
+            created: Math.floor(Date.now() / 1000),
+            role: ERole.assistant,
+            parentMessageId: shouldAddToStore
+              ? userMessage.id
+              : (initialMessages as TCommonMessage[])[
+                  (initialMessages as TCommonMessage[]).length - 1
+                ].id,
+            tokens: 0,
+            len: 0,
+          }
+          const innerOnEnd = async (
+            endData: IChatCompletionStreamOnEndData,
+          ) => {
+            if (shouldAddToStore) {
+              const msgsToBeStored = [userMessage, responseMessage]
+              if (systemPrompt) {
+                const systemMessage: IChatGPTSystemMessage = {
+                  id: genId(),
+                  text: systemPrompt,
+                  role: ERole.system,
+                  tokens: this.#tokenizer.getTokenCnt(systemPrompt),
+                }
+                userMessage.parentMessageId = systemMessage.id
+                msgsToBeStored.unshift(systemMessage)
+              }
+              await this.#store.set(msgsToBeStored)
+            }
+            await onEnd(endData)
+            resolve(endData)
+          }
+          await this.#streamChatWithOpenRouter(
+            messages,
+            onProgress,
+            responseMessage,
+            innerOnEnd,
+            model,
+          )
+        } else {
+          const chatResponse = await this.#chat(messages, model)
+          if (!chatResponse.success) {
+            return resolve({
+              ...chatResponse,
+              data: chatResponse.data as IChatCompletionErrReponseData,
+              raw: chatResponse.data,
+            })
+          }
+          const res = chatResponse.data as IChatCompletion
+          const responseMessage: IChatGPTResponse = {
+            id: genId(),
+            text: res?.choices[0]?.message?.content,
+            created: res.created,
+            role: ERole.assistant,
+            parentMessageId: shouldAddToStore
+              ? userMessage.id
+              : (initialMessages as TCommonMessage[])[
+                  (initialMessages as TCommonMessage[]).length - 1
+                ].id,
+            tokens: res?.usage?.total_tokens,
+            len:
+              (res?.choices[0]?.message?.content.length || 0) +
+              concatMessages(messages).length,
+          }
+          if (shouldAddToStore) {
+            const msgsToBeStored = [userMessage, responseMessage]
+            if (systemPrompt) {
+              const systemMessage: IChatGPTSystemMessage = {
+                id: genId(),
+                text: systemPrompt,
+                role: ERole.system,
+                tokens: this.#tokenizer.getTokenCnt(systemPrompt),
+              }
+              userMessage.parentMessageId = systemMessage.id
+              msgsToBeStored.unshift(systemMessage)
+            }
+            await this.#store.set(msgsToBeStored)
+          }
+          resolve({
+            success: true,
+            data: responseMessage,
+            raw: res,
+            status: chatResponse.status,
+          })
+        }
+      },
+    )
+  }
+
+  async #streamChatWithOpenRouter(
+    messages: { content: string; role: ERole }[],
+    onProgress: boolean | ((t: string, rwa: string) => void),
+    responseMessagge: IChatGPTResponse,
+    innerOnEnd: (d: IChatCompletionStreamOnEndData) => void,
+    model: string,
+  ) {
+    const axiosResponse = await post(
+      {
+        url: this.#urls.openrouter.createChatCompletion,
+        ...this.#requestConfig,
+        headers: {
+          Authorization: this.#genAuthorization(),
+          'Content-Type': 'application/json',
+          ...(this.#requestConfig.headers || {}),
+        },
+        data: {
+          model,
+          messages,
+          stream: true,
+          ...(this.#requestConfig.data || {}),
+        },
+        responseType: 'stream',
+      },
+      {
+        debug: this.#debug,
+        log: this.#log,
+      },
+    )
+    const stream = axiosResponse.data // 请求被取消之后变成 undefined
+    const status = axiosResponse.status
+    if (this.#validateAxiosResponse(status)) {
+      stream.on('data', (buf: any) => {
+        const dataArr = buf.toString().split('\n')
+        let onDataPieceText = ''
+        for (const dataStr of dataArr) {
+          try {
+            // split 之后的空行，或者结束通知
+            if (dataStr.indexOf('data: ') !== 0 || dataStr === 'data: [DONE]')
+              continue
+            const parsedData = JSON.parse(dataStr.slice(6)) // [data: ]
+            const pieceText = parsedData.choices[0].delta.content || ''
+            onDataPieceText += pieceText
+          } catch (e) {
+            // this.#log('chunk parse error')
+          }
+        }
+        if (typeof onProgress === 'function') {
+          onProgress(onDataPieceText, buf.toString())
+        }
+        responseMessagge.text += onDataPieceText
+      })
+      stream.on('end', async () => {
+        responseMessagge.tokens = this.#tokenizer.getTokenCnt(
+          responseMessagge.text + concatMessages(messages),
+        )
+        responseMessagge.len =
+          responseMessagge.text.length + concatMessages(messages).length
+        await innerOnEnd({
+          success: true,
+          data: responseMessagge,
+          status,
+        })
+      })
+    } else {
+      if (stream) {
+        let data: any = undefined
+        stream.on('data', (buf: any) => {
+          data = JSON.parse(buf.toString())
+          // that is stream
+          // error: {
+          //     message: 'Your access was terminated due to violation of our policies, please check your email for more information. If you believe this is in error and would like to appeal, please contact support@openai.com.',
+          //     type: 'access_terminated',
+          //     param: null,
+          //     code: null
+          //   }
+          // }
+        })
+        stream.on('end', async () => {
+          await innerOnEnd({
+            success: false,
+            data: {
+              message: data?.error?.message,
+              type: data?.error?.type,
+            },
+            status,
+          })
+        })
+      } else {
+        const isTimeoutErr = String(axiosResponse).includes(
+          'AxiosError: timeout of',
+        )
+        await innerOnEnd({
+          success: false,
+          data: {
+            message: isTimeoutErr ? 'request timeout' : 'unknow err',
+            type: isTimeoutErr ? 'error' : 'unknow err',
+          },
+          status: 500,
+        })
+      }
+    }
+  }
+
   async #chat(messages: { content: string; role: ERole }[], model: string) {
     const axiosResponse = await post(
       {
-        url: this.#urls.createChatCompletion,
+        url: this.#urls.openai.createChatCompletion,
         ...this.#requestConfig,
         headers: {
           ...(this.#vendor === 'OPENAI'
@@ -490,7 +745,7 @@ export class ChatGPT {
   async createModeration(input: string): Promise<boolean> {
     const moderationRes = await post(
       {
-        url: URLS.createModeration,
+        url: URLS.openai.createModeration,
         headers: {
           Authorization: this.#genAuthorization(),
           'Content-Type': 'application/json',
